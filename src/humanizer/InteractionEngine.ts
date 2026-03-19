@@ -3,29 +3,51 @@ import { Page, Locator } from 'playwright';
 export class InteractionEngine {
   constructor(private page: Page) {}
 
-  private async randomSleep(min: number, max: number): Promise<void> {
-    const ms = Math.floor(Math.random() * (max - min + 1)) + min;
-    await this.page.waitForTimeout(ms);
+  async randomDelay(min: number = 1000, max: number = 3000): Promise<void> {
+    const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+    await this.page.waitForTimeout(delay);
   }
 
-  async humanLikeClick(selector: string, timeoutMs: number): Promise<void> {
-    // Wait for DOMContentReady equivalent (networkidle is used in main flow)
-    await this.randomSleep(1000, 3000);
-
-    const element: Locator = this.page.locator(selector).first();
-    
+  async findAndClickPlayButton(timeoutSeconds: number): Promise<boolean> {
     try {
-      await element.waitFor({ state: 'visible', timeout: timeoutMs });
-    } catch (e) {
-      throw new Error(`Element ${selector} not found or visible within ${timeoutMs}ms`);
-    }
+      // Common play button selectors
+      const selectors = [
+        'button[aria-label="Play"]',
+        '.play-button',
+        'video',
+        '[class*="play"]'
+      ];
 
-    // Scroll into view if needed
-    await element.scrollIntoViewIfNeeded();
-    
-    // Small delay before clicking
-    await this.randomSleep(500, 1000);
-    
-    await element.click();
+      let playButton: Locator | null = null;
+
+      for (const selector of selectors) {
+        const element = this.page.locator(selector).first();
+        try {
+          await element.waitFor({ state: 'attached', timeout: timeoutSeconds * 1000 });
+          playButton = element;
+          break;
+        } catch (e) {
+          continue;
+        }
+      }
+
+      if (!playButton) {
+        throw new Error('Play button not found within timeout.');
+      }
+
+      await this.randomDelay(1000, 3000);
+      
+      // Scroll into view if needed
+      await playButton.scrollIntoViewIfNeeded();
+      
+      // Wait for stability
+      await this.randomDelay(500, 1000);
+      
+      await playButton.click();
+      return true;
+    } catch (error) {
+      console.error('Error finding or clicking play button:', error);
+      return false;
+    }
   }
 }
