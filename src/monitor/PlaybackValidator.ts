@@ -3,53 +3,58 @@ import { Page } from 'playwright';
 export class PlaybackValidator {
   constructor(private page: Page) {}
 
-  async validatePlayback(timeoutSeconds: number): Promise<{ playbackStartTimeMs: number, durationValidatedSec: number }> {
-    const startTime = Date.now();
-    
-    // 1. Start Detection: Wait for video to not be paused and readyState >= 3
-    const startDetectionTimeout = 5000;
-    let playbackStarted = false;
-    
+  async waitForPlaybackStart(timeoutSeconds: number): Promise<boolean> {
     try {
-      await this.page.waitForFunction(() => {
-        const video = document.querySelector('video');
-        return video && !video.paused && video.readyState >= 3;
-      }, { timeout: startDetectionTimeout });
-      playbackStarted = true;
-    } catch (e) {
-      throw new Error('Video failed to start within 5 seconds.');
-    }
+      const startTime = Date.now();
+      const timeoutMs = timeoutSeconds * 1000;
 
-    const playbackStartTimeMs = Date.now() - startTime;
+      while (Date.now() - startTime < timeoutMs) {
+        const isPlaying = await this.page.evaluate(() => {
+          const video = document.querySelector('video');
+          if (!video) return false;
+          return !video.paused && video.readyState >= 3;
+        });
 
-    // 2. Continuity Check: Monitor currentTime for 10 seconds
-    let durationValidatedSec = 0;
-    let previousTime = -1;
-
-    for (let i = 0; i < 10; i++) {
-      await this.page.waitForTimeout(1000); // Poll every 1s
-      
-      const state = await this.page.evaluate(() => {
-        const video = document.querySelector('video');
-        if (!video) return { error: 'Video element lost' };
-        if (video.error) return { error: `Video error: ${video.error.code}` };
-        if (video.paused) return { error: 'Video paused unexpectedly' };
-        return { currentTime: video.currentTime };
-      });
-
-      if (state.error) {
-        throw new Error(state.error);
+        if (isPlaying) return true;
+        await this.page.waitForTimeout(500);
       }
+      return false;
+    } catch (error) {
+      console.error('Error waiting for playback start:', error);
+      return false;
+    }
+  }
 
-      if (state.currentTime !== undefined) {
-        if (state.currentTime <= previousTime) {
-          throw new Error('Video playback stalled (currentTime not increasing).');
+  async validateContinuousPlayback(durationSeconds: number): Promise<boolean> {
+    try {
+      let previousTime = -1;
+      let consecutiveIncreases = 0;
+      const requiredIncreases = durationSeconds; // 1 check per second
+
+      for (let i = 0; i < durationSeconds + 5; i++) { // Allow some buffer
+        const currentTime = await this.page.evaluate(() => {
+          const video = document.querySelector('video');
+          return video ? video.currentTime : -1;
+        });
+
+        if (currentTime > previousTime) {
+          consecutiveIncreases++;
+          if (consecutiveIncreases >= requiredIncreases) {
+            return true;
+          }
+        } else {
+          // Playback stalled or paused
+          consecutiveIncreases = 0;
         }
-        previousTime = state.currentTime;
-        durationValidatedSec++;
-      }
-    }
 
-    return { playbackStartTimeMs, durationValidatedSec };
+        previousTime = currentTime;
+        await this.page.waitForTimeout(1000);
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error validating continuous playback:', error);
+      return false;
+    }
   }
 }
