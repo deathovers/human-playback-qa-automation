@@ -2,74 +2,91 @@ import { BrowserManager } from './core/BrowserManager';
 import { InteractionEngine } from './humanizer/InteractionEngine';
 import { PlaybackValidator } from './monitor/PlaybackValidator';
 import { Reporter } from './utils/Reporter';
-import { TestInput, TestMetrics, TestError } from './types';
+import { TestInput, TestOutput } from './types';
+import * as path from 'path';
 
-export async function runTest(input: TestInput) {
+export async function runTest(input: TestInput): Promise<TestOutput> {
   const browserManager = new BrowserManager();
   const reporter = new Reporter();
   
-  const metrics: TestMetrics = {
-    loadTimeMs: 0,
-    playbackStartTimeMs: 0,
-    durationValidatedSec: 0
+  const output: TestOutput = {
+    testId: input.testId,
+    status: 'FAIL',
+    metrics: {
+      loadTimeMs: 0,
+      playbackStartTimeMs: 0,
+      durationValidatedSec: 0
+    },
+    error: {
+      message: null,
+      screenshotPath: null
+    },
+    timestamp: new Date().toISOString()
   };
-  
-  const error: TestError = {
-    message: null,
-    screenshotPath: null
-  };
-
-  let status: "SUCCESS" | "FAIL" = "FAIL";
-  const startLoadTime = Date.now();
 
   try {
     const page = await browserManager.launch(input.browserConfig);
     
-    // Navigation
+    const loadStart = Date.now();
     await page.goto(input.url, { waitUntil: 'networkidle' });
-    metrics.loadTimeMs = Date.now() - startLoadTime;
+    output.metrics.loadTimeMs = Date.now() - loadStart;
 
-    // Interaction
     const interactionEngine = new InteractionEngine(page);
-    // Assuming a generic play button selector, can be customized
-    await interactionEngine.humanLikeClick('button[aria-label="Play"], .play-button, video', 15000);
+    const clicked = await interactionEngine.findAndClickPlayButton(15);
+    
+    if (!clicked) {
+      throw new Error('Failed to find or click play button within 15 seconds.');
+    }
 
-    // Monitoring
     const validator = new PlaybackValidator(page);
-    const validationResult = await validator.validatePlayback(input.timeoutSeconds);
     
-    metrics.playbackStartTimeMs = validationResult.playbackStartTimeMs;
-    metrics.durationValidatedSec = validationResult.durationValidatedSec;
+    const playStartWait = Date.now();
+    const started = await validator.waitForPlaybackStart(5);
     
-    status = "SUCCESS";
+    if (!started) {
+      throw new Error('Video failed to start playback within 5 seconds.');
+    }
+    output.metrics.playbackStartTimeMs = Date.now() - playStartWait;
 
-  } catch (err: any) {
-    error.message = err.message || 'Unknown error occurred';
+    const continuous = await validator.validateContinuousPlayback(10);
+    
+    if (!continuous) {
+      throw new Error('Video failed to sustain continuous playback for 10 seconds.');
+    }
+    
+    output.metrics.durationValidatedSec = 10;
+    output.status = 'SUCCESS';
+
+  } catch (error: any) {
+    output.error.message = error.message || 'Unknown error occurred';
+    
     if (browserManager.page) {
-      try {
-        error.screenshotPath = await reporter.captureFailure(browserManager.page, input.testId, error.message);
-      } catch (screenshotErr) {
-        console.error('Failed to capture screenshot:', screenshotErr);
-      }
+      const screenshotName = `error_${input.testId}_${Date.now()}.png`;
+      const screenshotPath = path.join(process.cwd(), 'results', screenshotName);
+      await browserManager.page.screenshot({ path: screenshotPath, fullPage: true });
+      output.error.screenshotPath = screenshotPath;
     }
   } finally {
     await browserManager.close();
-    const report = reporter.generateReport(input.testId, status, metrics, error);
-    console.log(JSON.stringify(report, null, 2));
-    return report;
+    await reporter.saveReport(output);
   }
+
+  return output;
 }
 
-// Example execution if run directly
+// Example usage if run directly
 if (require.main === module) {
   const sampleInput: TestInput = {
-    testId: "test-123",
-    url: "https://test-video-url.com",
-    timeoutSeconds: 10,
+    testId: 'test-001',
+    url: 'https://test-videos.co.uk/vimeo/mp4', // Example URL
+    timeoutSeconds: 15,
     browserConfig: {
       headless: false,
       slowMo: 50
     }
   };
-  runTest(sampleInput).catch(console.error);
+
+  runTest(sampleInput).then(result => {
+    console.log('Test Execution Complete:', result);
+  }).catch(console.error);
 }
