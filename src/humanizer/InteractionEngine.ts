@@ -1,46 +1,31 @@
 import { Page, Locator } from 'playwright';
 
 export class InteractionEngine {
-  private page: Page;
+  constructor(private page: Page) {}
 
-  constructor(page: Page) {
-    this.page = page;
+  private async randomSleep(min: number, max: number): Promise<void> {
+    const ms = Math.floor(Math.random() * (max - min + 1)) + min;
+    await this.page.waitForTimeout(ms);
   }
 
-  async randomDelay(min: number = 1000, max: number = 3000): Promise<void> {
-    const delay = Math.floor(Math.random() * (max - min + 1)) + min;
-    await this.page.waitForTimeout(delay);
-  }
+  async humanLikeClick(selector: string, timeoutMs: number): Promise<void> {
+    // Wait for DOMContentReady equivalent (networkidle is used in main flow)
+    await this.randomSleep(1000, 3000);
 
-  async findAndClickPlayButton(timeoutSeconds: number): Promise<void> {
-    // A generic selector for play buttons, can be customized
-    const playButtonSelectors = [
-      'button[aria-label="Play"]',
-      '.play-button',
-      '#play-btn',
-      'video' // Fallback to clicking the video itself
-    ];
-
-    let playButton: Locator | null = null;
-
-    for (const selector of playButtonSelectors) {
-      const locator = this.page.locator(selector).first();
-      try {
-        await locator.waitFor({ state: 'attached', timeout: timeoutSeconds * 1000 });
-        playButton = locator;
-        break;
-      } catch (e) {
-        // Continue to next selector
-      }
+    const element: Locator = this.page.locator(selector).first();
+    
+    try {
+      await element.waitFor({ state: 'visible', timeout: timeoutMs });
+    } catch (e) {
+      throw new Error(`Element ${selector} not found or visible within ${timeoutMs}ms`);
     }
 
-    if (!playButton) {
-      throw new Error('Play button not found within timeout.');
-    }
-
-    await this.randomDelay(1000, 3000);
-    await playButton.scrollIntoViewIfNeeded();
-    await this.randomDelay(500, 1500); // Wait a bit after scrolling
-    await playButton.click();
+    // Scroll into view if needed
+    await element.scrollIntoViewIfNeeded();
+    
+    // Small delay before clicking
+    await this.randomSleep(500, 1000);
+    
+    await element.click();
   }
 }
