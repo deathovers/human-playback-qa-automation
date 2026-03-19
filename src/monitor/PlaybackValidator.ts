@@ -1,87 +1,55 @@
 import { Page } from 'playwright';
 
 export class PlaybackValidator {
-  private page: Page;
-
-  constructor(page: Page) {
-    this.page = page;
-  }
+  constructor(private page: Page) {}
 
   async validatePlayback(timeoutSeconds: number): Promise<{ playbackStartTimeMs: number, durationValidatedSec: number }> {
     const startTime = Date.now();
     
-    // Wait for video element to be ready and playing
-    const isPlaying = await this.page.evaluate(async (timeout) => {
-      const video = document.querySelector('video');
-      if (!video) return false;
-
-      return new Promise<boolean>((resolve) => {
-        const checkInterval = setInterval(() => {
-          if (!video.paused && video.readyState >= 3) {
-            clearInterval(checkInterval);
-            resolve(true);
-          }
-        }, 500);
-
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          resolve(false);
-        }, timeout * 1000);
-      });
-    }, timeoutSeconds);
-
-    if (!isPlaying) {
-      throw new Error('Video failed to start playing within timeout.');
+    // 1. Start Detection: Wait for video to not be paused and readyState >= 3
+    const startDetectionTimeout = 5000;
+    let playbackStarted = false;
+    
+    try {
+      await this.page.waitForFunction(() => {
+        const video = document.querySelector('video');
+        return video && !video.paused && video.readyState >= 3;
+      }, { timeout: startDetectionTimeout });
+      playbackStarted = true;
+    } catch (e) {
+      throw new Error('Video failed to start within 5 seconds.');
     }
 
     const playbackStartTimeMs = Date.now() - startTime;
 
-    // Monitor continuity for 10 seconds
-    const durationValidatedSec = await this.page.evaluate(async () => {
-      const video = document.querySelector('video');
-      if (!video) return 0;
+    // 2. Continuity Check: Monitor currentTime for 10 seconds
+    let durationValidatedSec = 0;
+    let previousTime = -1;
 
-      let lastTime = video.currentTime;
-      let accumulatedTime = 0;
+    for (let i = 0; i < 10; i++) {
+      await this.page.waitForTimeout(1000); // Poll every 1s
       
-      return new Promise<number>((resolve, reject) => {
-        const checkInterval = setInterval(() => {
-          if (video.error) {
-            clearInterval(checkInterval);
-            reject(new Error(`Video error: ${video.error.message || video.error.code}`));
-            return;
-          }
-
-          if (video.paused) {
-            // Might be buffering or ad, but for strict 10s continuous playback:
-            clearInterval(checkInterval);
-            reject(new Error('Video paused unexpectedly.'));
-            return;
-          }
-
-          const currentTime = video.currentTime;
-          if (currentTime > lastTime) {
-            accumulatedTime += (currentTime - lastTime);
-          }
-          lastTime = currentTime;
-
-          if (accumulatedTime >= 10) {
-            clearInterval(checkInterval);
-            resolve(accumulatedTime);
-          }
-        }, 1000);
-
-        // Fail-safe timeout for the 10s check (e.g., 20 seconds max wait)
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          reject(new Error('Failed to accumulate 10 seconds of playback.'));
-        }, 20000);
+      const state = await this.page.evaluate(() => {
+        const video = document.querySelector('video');
+        if (!video) return { error: 'Video element lost' };
+        if (video.error) return { error: `Video error: ${video.error.code}` };
+        if (video.paused) return { error: 'Video paused unexpectedly' };
+        return { currentTime: video.currentTime };
       });
-    });
 
-    return {
-      playbackStartTimeMs,
-      durationValidatedSec
-    };
+      if (state.error) {
+        throw new Error(state.error);
+      }
+
+      if (state.currentTime !== undefined) {
+        if (state.currentTime <= previousTime) {
+          throw new Error('Video playback stalled (currentTime not increasing).');
+        }
+        previousTime = state.currentTime;
+        durationValidatedSec++;
+      }
+    }
+
+    return { playbackStartTimeMs, durationValidatedSec };
   }
 }
