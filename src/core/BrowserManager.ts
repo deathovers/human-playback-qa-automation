@@ -4,7 +4,7 @@ import { BrowserConfig } from '../types';
 export class BrowserManager {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
-  private page: Page | null = null;
+  public page: Page | null = null;
 
   async launch(config: BrowserConfig): Promise<Page> {
     this.browser = await chromium.launch({
