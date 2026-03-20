@@ -19,7 +19,7 @@ export interface TestResult {
   screenshotPath: string | null;
 }
 
-export interface JobResult {
+export interface JobResponse {
   jobId: string;
   results: TestResult[];
 }
