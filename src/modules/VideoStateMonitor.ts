@@ -1,67 +1,49 @@
 import { Page } from 'playwright';
-import { logger } from '../utils/logger';
 
 export class VideoStateMonitor {
-  private page: Page;
+  constructor(private page: Page) {}
 
-  constructor(page: Page) {
-    this.page = page;
-  }
-
-  public async validatePlayback(timeoutSeconds: number): Promise<{ success: boolean; durationValidated: number; error: string | null }> {
-    logger.info('Starting playback validation...');
-    
+  async validatePlayback(timeoutSeconds: number): Promise<{ success: boolean; duration: number; error?: string }> {
     const videoSelector = 'video';
     
+    // Wait for video element
     try {
-      // Wait for video element to be present
-      await this.page.waitForSelector(videoSelector, { state: 'attached', timeout: timeoutSeconds * 1000 });
-      
-      // Wait for playback to start (currentTime > 0 and not paused)
-      const startTime = Date.now();
-      let isPlaying = false;
-      
-      while (Date.now() - startTime < 5000) {
-        isPlaying = await this.page.$eval(videoSelector, (video: HTMLVideoElement) => {
-          return video.currentTime > 0 && !video.paused && !video.ended && video.readyState > 2;
-        });
-        
-        if (isPlaying) break;
-        await this.page.waitForTimeout(500);
-      }
-
-      if (!isPlaying) {
-        return { success: false, durationValidated: 0, error: 'Timeout: Video failed to transition to playing state within 5 seconds.' };
-      }
-
-      logger.info('Video started playing. Monitoring continuity for 10 seconds...');
-      
-      let previousTime = await this.page.$eval(videoSelector, (video: HTMLVideoElement) => video.currentTime);
-      let durationValidated = 0;
-
-      for (let i = 0; i < 10; i++) {
-        await this.page.waitForTimeout(1000);
-        
-        const currentTime = await this.page.$eval(videoSelector, (video: HTMLVideoElement) => video.currentTime);
-        const isPaused = await this.page.$eval(videoSelector, (video: HTMLVideoElement) => video.paused);
-        
-        if (isPaused) {
-           return { success: false, durationValidated, error: 'Playback stalled: Video is paused.' };
-        }
-
-        if (currentTime <= previousTime) {
-          return { success: false, durationValidated, error: `Playback stalled: currentTime (${currentTime}) did not increase from previousTime (${previousTime}).` };
-        }
-
-        previousTime = currentTime;
-        durationValidated += 1;
-        logger.info(`Playback continuous. Current time: ${currentTime.toFixed(2)}s`);
-      }
-
-      return { success: true, durationValidated, error: null };
-
-    } catch (error: any) {
-      return { success: false, durationValidated: 0, error: `Validation error: ${error.message}` };
+      await this.page.waitForSelector(videoSelector, { state: 'attached', timeout: 5000 });
+    } catch (e) {
+      return { success: false, duration: 0, error: 'Timeout: Video element not found within 5 seconds' };
     }
+
+    // Wait for playback to start (currentTime > 0 and not paused)
+    const startTime = Date.now();
+    let isPlaying = false;
+    while (Date.now() - startTime < 5000) {
+      isPlaying = await this.page.$eval(videoSelector, (vid: HTMLVideoElement) => !vid.paused && vid.currentTime > 0);
+      if (isPlaying) break;
+      await this.page.waitForTimeout(500);
+    }
+
+    if (!isPlaying) {
+      return { success: false, duration: 0, error: 'Timeout: Video failed to start playing within 5 seconds' };
+    }
+
+    // Poll for 10 seconds to ensure monotonic increase
+    let previousTime = await this.page.$eval(videoSelector, (vid: HTMLVideoElement) => vid.currentTime);
+    let durationValidated = 0;
+    const pollInterval = 1000;
+    const validationDuration = 10000; // 10 seconds
+
+    for (let i = 0; i < validationDuration / pollInterval; i++) {
+      await this.page.waitForTimeout(pollInterval);
+      const currentTime = await this.page.$eval(videoSelector, (vid: HTMLVideoElement) => vid.currentTime);
+      
+      if (currentTime <= previousTime) {
+        return { success: false, duration: durationValidated, error: `Playback stalled at ${currentTime}s` };
+      }
+      
+      durationValidated += (currentTime - previousTime);
+      previousTime = currentTime;
+    }
+
+    return { success: true, duration: durationValidated };
   }
 }
