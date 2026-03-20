@@ -1,18 +1,19 @@
 {
   "name": "human-playback-qa-automation",
   "version": "1.0.0",
-  "description": "Automated QA system for OTT video playback using Playwright with human-like interaction simulation.",
+  "description": "Automated QA system for human-like video playback validation on OTT platforms using Playwright.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "playwright test"
   },
   "dependencies": {
     "playwright": "^1.42.1"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.4.2"
+    "@playwright/test": "^1.42.1",
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
   }
 }
