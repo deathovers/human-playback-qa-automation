@@ -1,30 +1,25 @@
-export interface BrowserConfig {
+export interface JobConfig {
   headless: boolean;
-  slowMo?: number;
-}
-
-export interface TestInput {
-  testId: string;
-  url: string;
   timeoutSeconds: number;
-  browserConfig: BrowserConfig;
+  playButtonSelector: string;
 }
 
-export interface TestMetrics {
-  loadTimeMs: number;
-  playbackStartTimeMs: number;
-  durationValidatedSec: number;
+export interface JobRequest {
+  jobId: string;
+  urls: string[];
+  config: JobConfig;
 }
 
-export interface TestError {
-  message: string | null;
+export interface TestResult {
+  url: string;
+  status: 'SUCCESS' | 'FAIL';
+  playbackStartTime: string | null;
+  durationValidated: number;
+  error: string | null;
   screenshotPath: string | null;
 }
 
-export interface TestOutput {
-  testId: string;
-  status: 'SUCCESS' | 'FAIL';
-  metrics: TestMetrics;
-  error: TestError;
-  timestamp: string;
+export interface JobResult {
+  jobId: string;
+  results: TestResult[];
 }
