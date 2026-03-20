@@ -1,7 +1,5 @@
 import { PlaybackJobRunner } from './core/PlaybackJobRunner';
 import { JobRequest } from './types';
-import * as fs from 'fs';
-import * as path from 'path';
 
 async function main() {
   const runner = new PlaybackJobRunner();
@@ -9,28 +7,18 @@ async function main() {
   const sampleJob: JobRequest = {
     jobId: `job-${Date.now()}`,
     urls: [
-      "https://test-videos.co.uk/vimeo/mp4" // Example URL, in reality would be OTT platform
+      "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4"
     ],
     config: {
       headless: false,
       timeoutSeconds: 15,
-      playButtonSelector: "button.play-action, .play-button, video" // Fallback selectors
+      playButtonSelector: "video" // For direct video links, clicking the video often plays it
     }
   };
 
+  console.log(`Starting job: ${sampleJob.jobId}`);
   const result = await runner.runJob(sampleJob);
-  
-  const resultsDir = path.join(process.cwd(), 'results');
-  if (!fs.existsSync(resultsDir)) {
-    fs.mkdirSync(resultsDir, { recursive: true });
-  }
-  
-  fs.writeFileSync(
-    path.join(resultsDir, `${sampleJob.jobId}.json`), 
-    JSON.stringify(result, null, 2)
-  );
-  
-  console.log('Job execution finished. Results saved.');
+  console.log(JSON.stringify(result, null, 2));
 }
 
 if (require.main === module) {
